@@ -25,13 +25,15 @@ ui = fluidPage(
       sliderInput("cutoff","Cutoff", min = 1, max = max(as.matrix(dist(datas[,c(1,2)])))/2,value = 225),
       sliderInput("width","Width", min = 1, max = 200,value = 11.25),
       sliderInput("nugget","Nugget", min = 0,step = 0.01, max = 1000,value = 225),
-      
+      sliderInput("alpha","Anisotropy angle", min = 0, max = 270,value=0),
+      sliderInput("ratio","Ratio", min = 0, max = 1,value = 1),
       # FluidRow(uiOutput("dynamic_params"))
       
       
       ##### try
      fluidRow( 
-               column(4,uiOutput("dynamic_models")),column(4,uiOutput("dynamic_ranges")),
+               column(4,uiOutput("dynamic_models")),
+               column(4,uiOutput("dynamic_ranges")),
                       column(4,uiOutput("dynamic_sills"))
                 )
       
@@ -45,15 +47,6 @@ server <- function(input, output,session)
   {
 
   
-  ##  #empirical variogram ------------
-  
-  gs = reactive({
-    frm = as.formula(paste("log(", input$variable, ")~1", sep=""))
-    gstat(id=input$variable, formula=frm, locations = ~X+Y, data=datas)
-  }) 
-  
-  ## configured empirical variogram ---------
-  vg = reactive(variogram(gs(), cutoff=input$cutoff, width=input$width) )
   
   
   ### Dynamic UI working!-----
@@ -98,7 +91,7 @@ server <- function(input, output,session)
                              min = 0, step = 0.01,max = max(as.matrix(dist(datas[,c(1,2)]))),value = 225) 
     
     
-  })
+                })
   })
   ###### dynamic sills-----
   output$dynamic_sills <- renderUI({
@@ -113,6 +106,19 @@ server <- function(input, output,session)
   })
   
   
+  
+
+  ##  #empirical variogram ------------
+  
+  gs = reactive({
+    frm = as.formula(paste("log(", input$variable, ")~1", sep=""))
+    gstat(id=input$variable, formula=frm, locations = ~X+Y, data=datas)
+  }) 
+  
+  ## configured empirical variogram ---------
+  vg = reactive(variogram(gs(), cutoff=input$cutoff, width=input$width) )
+ 
+  
   ## theoretical variogram--------
   
   # vgt= reactive(vgm(model=input$model, nugget=input$nugget,range=input$range, psill=input$sill, anis=c(input$alpha,input$r) ) %>%
@@ -121,8 +127,16 @@ server <- function(input, output,session)
   # vgt = reactive(vgm(model=input$model, nugget=input$nugget, range=input$range, psill=input$sill) %>%
   #                  {vgm(model=input$model1, range=input$range1, psill=input$sill1, add.to=.)})
   
-
+  # vgt= reactive( {
+  #   vgm(model=input$model, nugget=input$nugget, range=input$range, psill=input$sill,anis = c(input$angle, input$ratio)) %>%
+  #              lapply(2:as.integer(input$num),function(i){ 
+  #                {vgm(model=input[[paste0("model",i)]], range=input[[paste0("range",i)]], psill=input[[paste0("input$sill",i)]], add.to=.)}
+  #                } )
+  #              
+  #              })
   
+  vgt= reactive(vgm(model=input$model1, nugget=input$nugget,range=input$range1, psill=input$sill1, anis=c(input$alpha,input$ratio) ) %>%
+                  variogramLine(maxdist = input$cutoff))
   
   
   ## plotting ---------
@@ -131,7 +145,7 @@ server <- function(input, output,session)
     
     ggplot() +
       geom_point(data=vg(),aes(dist, gamma, colour = 2)) +
-      geom_line(data=vgt(),aes(dist, gamma, colour = 2))+
+      geom_line(data=variogramLine(vgt(),maxdist = input$cutoff),aes(dist, gamma, colour = 2))+
       labs(y = "semivariogram",x="distance")
   }, res = 96)
   
