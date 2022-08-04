@@ -1,6 +1,6 @@
 library(shiny)
 library(gmGeostats)
-
+source("spSupport.R")
 library(magrittr) 
 library(dplyr)
 library(gstat)
@@ -31,29 +31,53 @@ ui = fluidPage(
       sliderInput("width","Width", min = 1, max = 200,value = 11.25),
       sliderInput("nugget","Nugget", min = 0,step = 0.01, max = 1000,value = 225),
       
-      # FluidRow(uiOutput("dynamic_params"))
-      
-      
-    
       
           ),
     mainPanel(
       ##### try
-      fluidRow( 
-        
-        column(2,uiOutput("dynamic_models")),
-        column(3,uiOutput("dynamic_ranges")),
-        column(3,uiOutput("dynamic_sills")),
-        column(2,uiOutput("dynamic_alpha")),
-        column(2,uiOutput("dynamic_ratio"))
-      ),
-      plotly::plotlyOutput("varioplot"),
-      plotly::plotlyOutput("swathN"),
-      plotly::plotlyOutput("swathE")
+      tabsetPanel(id="Mainpanel",
+                  
+                  tabPanel("Data set",
+                           DT::DTOutput('datatabshow')
+                           
+                           ),
+                  
+                  tabPanel("Variogram plot",
+                           
+                             fluidRow( 
+                               
+                               column(2,uiOutput("dynamic_models")),
+                               column(3,uiOutput("dynamic_ranges")),
+                               column(3,uiOutput("dynamic_sills")),
+                               column(2,uiOutput("dynamic_alpha")),
+                               column(2,uiOutput("dynamic_ratio"))
+                               ),
+                               plotly::plotlyOutput("varioplot")
+                           
+                           
+                           ),
+                  
+                  tabPanel("Variogram surface"),
+                  
+                  tabPanel("Swath plots",
+                           plotly::plotlyOutput("swathN"),
+                           plotly::plotlyOutput("swathE")
+                           
+                           )
+                  
+                  
+                  
+                  )
+      
+      
+      )
       
     )
   )
-)
+
+
+
+
 server <- function(input, output,session)
   {
 
@@ -121,7 +145,7 @@ server <- function(input, output,session)
   })
   
 
-  ##  #empirical variogram ------------
+  ##  empirical variogram ------------
   
   gs = reactive({
     frm = as.formula(paste("log(", input$variable, ")~1", sep=""))
@@ -134,25 +158,10 @@ server <- function(input, output,session)
   
   ## theoretical variogram--------
   
-  # vgt= reactive(vgm(model=input$model, nugget=input$nugget,range=input$range, psill=input$sill, anis=c(input$alpha,input$r) ) %>%
-  #                 variogramLine(maxdist = input$cutoff))
-  
-  # vgt = reactive(vgm(model=input$model, nugget=input$nugget, range=input$range, psill=input$sill) %>%
-  #                  {vgm(model=input$model1, range=input$range1, psill=input$sill1, add.to=.)})
-  
-  # vgt= reactive( {
-  #   # n =as.integer(input$num)
-    # vgm(model=input$model, nugget=input$nugget, range=input$range, psill=input$sill,
-    #     anis = c(input$angle, input$ratio)) %>%
-    #            lapply(2:as.integer(input$num),function(i){
-    #              {vgm(model=input[[paste0("model",i)]], range=input[[paste0("range",i)]], psill=input[[paste0("input$sill",i)]], add.to=.)}
-    #              } )
-    # 
-    #            })
   
   vgt= reactive( {
     
-     # browser()
+     
   res = vgm(model=input$model1, nugget=input$nugget, range=input$range1, psill=input$sill1,
       anis = c(input$alpha1, input$ratio1))
     if(input$num>1){
@@ -169,6 +178,12 @@ server <- function(input, output,session)
   
 })
 
+  ### render data frame ------------
+  output$datatabshow <- DT::renderDT({    
+    datas %>%      select(c(1,2),input$variable)
+    
+    
+    })
   
   
   
@@ -199,7 +214,7 @@ server <- function(input, output,session)
       ggplot(datas) +
           geom_point(aes_string(x="Y", y=vrbl )) +
           theme_bw() +
-          ggtitle(paste(" Log(",input$variable,")", "vs Y"))+
+          ggtitle(paste0(" Log(",input$variable,")", " vs Y"))+
           geom_smooth(aes_string(x="Y", y=vrbl ), method=loess, col=2)
       }
 
@@ -213,12 +228,17 @@ server <- function(input, output,session)
       ggplot(datas) +
           geom_point(aes_string(x="X", y=vrbl )) +
           theme_bw() +
-          ggtitle(paste(" Log(",input$variable,")", "vs X") )+
+          ggtitle(paste0(" Log(",input$variable,")", " vs X") )+
           geom_smooth(aes_string(x="X", y=vrbl ), method=loess, col=2)}
     )
 
 
-
+# output$variosurf = plotly::renderPlotly({
+#   
+#   image.polargrid(z = gs())
+#   
+#   
+# })
     
   
   
