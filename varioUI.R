@@ -19,13 +19,15 @@ datas = datas[,-1] # clip 1st col
 datas[,c(3,4,5,7,8)]
 
 
+# ?????
+# gmGeostats::make.gmMultivariateGaussianSpatialModel()
 
 
 ui = fluidPage(
   sidebarLayout(
     sidebarPanel(
-      # fileInput("upload", NULL, accept = c(".csv", ".tsv")),
-      numericInput("num", "number of structures", value = 1, min = 1, max = 3),
+      
+      numericInput("num", "Number of structures", value = 1, min = 1, max = 3),
       selectInput("variable", "Variable", choices = colnames(datas[,c(3,4,5,7,8)])),
       sliderInput("cutoff","Cutoff", min = 1, max = max(as.matrix(dist(datas[,c(1,2)])))/2,value = 225),
       sliderInput("width","Width", min = 1, max = 200,value = 11.25),
@@ -57,7 +59,7 @@ ui = fluidPage(
                            
                            ),
                   
-                  tabPanel("Variogram surface"),
+                  tabPanel("Variogram surface", plotly::plotlyOutput("variosurf")),
                   
                   tabPanel("Swath plots",
                            plotly::plotlyOutput("swathN"),
@@ -81,8 +83,10 @@ ui = fluidPage(
 server <- function(input, output,session)
   {
 
-  
-  
+  ### subset the data w.r.t variable and coordinates------  
+  selected_data = reactive({
+    datas %>%      select(c(1,2),input$variable)
+  })   
   
   
   
@@ -144,6 +148,9 @@ server <- function(input, output,session)
     })
   })
   
+  
+
+  
 
   ##  empirical variogram ------------
   
@@ -178,9 +185,10 @@ server <- function(input, output,session)
   
 })
 
+  
   ### render data frame ------------
   output$datatabshow <- DT::renderDT({    
-    datas %>%      select(c(1,2),input$variable)
+    selected_data()
     
     
     })
@@ -233,12 +241,12 @@ server <- function(input, output,session)
     )
 
 
-# output$variosurf = plotly::renderPlotly({
-#   
-#   image.polargrid(z = gs())
-#   
-#   
-# })
+output$variosurf = plotly::renderPlotly({
+
+#   image.polargrid(r = vg)
+# browser()
+
+})
     
   
   
