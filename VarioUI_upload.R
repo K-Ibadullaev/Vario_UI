@@ -7,7 +7,7 @@ library(gstat)
 library(scico)
 library(ggplot2)
 library(plotly)
-
+library(rlang)
 
 
 
@@ -20,7 +20,10 @@ ui = fluidPage(
       numericInput("num", "Number of structures", value = 1, min = 1, max = 3),
       uiOutput("Xcoords"),
       uiOutput("Ycoords"),
-      uiOutput("var_chem"),
+      fluidRow(
+        column(4,uiOutput("var_chem")),
+        column(4,uiOutput("indicator_box")), 
+        column(4,uiOutput("indicator_list"))),
       uiOutput("cutoff"),
       sliderInput("width","Width", min = 1, max = 200,value = 11.25),
       sliderInput("nugget","Nugget", min = 0,step = 0.01, max = 1000,value = 225),
@@ -51,12 +54,12 @@ ui = fluidPage(
                            
                   ),
                   
-                  tabPanel("Kriging", plotly::plotlyOutput("krig_res")),
-                  
                   tabPanel("Swath plots",
                            plotly::plotlyOutput("swathN"),
-                           plotly::plotlyOutput("swathE")
-                           
+                           plotly::plotlyOutput("swathE")),
+                  tabPanel(
+                        "Kriging", plotly::plotlyOutput("krig_res")
+                     
                   )
                   
                   
@@ -80,7 +83,16 @@ server <- function(input, output,session)
     read.csv(input$filedata$datapath)
   })
   
+  ### indicator box-----
+  output$indicator_box <- renderUI({
+    checkboxInput("indicator_box", "Indicator", value = F)
+  })
   
+  ### indicator list-----
+  output$indicator_list <- renderUI({
+    req(input$indicator_box,input$var_chem)
+    selectInput("indicator_list", "Indicator variable", choices = selected_data() %>% select(input$var_chem)%>% unique) 
+  })
   
   
   ### coordinates------
@@ -142,7 +154,14 @@ server <- function(input, output,session)
     purrr::map(1:num,function(i) {
       
       sliderInput(inputId = paste0("sill",i),label=paste("Sill",i),
-                  min = 0, step = 0.01,max = var(selected_data()%>%select(input$var_chem))*1.5,value = var(selected_data()%>%select(input$var_chem))*1.5*0.01)
+                  min = 0, step = 0.01,max = ifelse(!input$indicator_box,
+                                                    var(selected_data()%>%select(input$var_chem))*1.5,
+                                                    0.25) ,
+                  value = ifelse(!input$indicator_box,
+                    var(selected_data()%>%select(input$var_chem))*1.5*0.01,
+                  0.25)
+                  
+      )
       
     })
   })
@@ -174,9 +193,23 @@ server <- function(input, output,session)
   ##  empirical variogram ------------
   
   gs = reactive({
-    frm = as.formula(paste("log(", input$var_chem, ")~1", sep=""))
-    location_frm = as.formula(paste( "~X+Y", sep=""))
-    gstat(id=input$var_chem, formula=frm, locations = location_frm , data=selected_data())
+    
+    if(input$indicator_box){
+      ddt = selected_data() # %>% mutate( !!(input$indicator_list) := as.character(input$var_chem)==input$indicator_list)
+      frm = as.formula(paste( as.character(input$var_chem), "=='", as.character(input$indicator_list), "'~1", sep=""))
+      # d = reactive(cbind(selected_data(),isVarInt))
+      location_frm = as.formula(paste( "~X+Y", sep=""))
+      # browser()
+      gstat(id=input$indicator_list, formula=frm, locations = location_frm , data=ddt)
+    }else{
+      frm = as.formula(paste("log(", input$var_chem, ")~1", sep=""))
+      d =selected_data() 
+      location_frm = as.formula(paste( "~X+Y", sep=""))
+      gstat(id=input$var_chem, formula=frm, locations = location_frm , data=d)
+    }
+    
+    
+    
   }) 
   
   ## configured empirical variogram ---------
@@ -274,13 +307,16 @@ server <- function(input, output,session)
   
   output$swathN = plotly::renderPlotly(
     {
-      
-      vrbl = paste0("log(",input$var_chem,")")
-      ggplot(selected_data) +
+      if (!input$indicator_box) {
+        vrbl = paste0("log(",input$var_chem,")")
+      ggplot(selected_data()) +
         geom_point(aes_string(x="Y", y=vrbl )) +
         theme_bw() +
         ggtitle(paste0(" Log(",input$var_chem,")", " vs Y"))+
         geom_smooth(aes_string(x="Y", y=vrbl ), method=loess, col=2)
+      }
+      
+      
     }
     
     
@@ -289,12 +325,14 @@ server <- function(input, output,session)
   
   output$swathE = plotly::renderPlotly(
     {
+      if (!input$indicator_box) {
       vrbl = paste0("log(",input$var_chem,")")
-      ggplot(selected_data) +
+      ggplot(selected_data()) +
         geom_point(aes_string(x="X", y=vrbl )) +
         theme_bw() +
         ggtitle(paste0(" Log(",input$var_chem,")", " vs X") )+
         geom_smooth(aes_string(x="X", y=vrbl ), method=loess, col=2)}
+    }
   )
   
   
