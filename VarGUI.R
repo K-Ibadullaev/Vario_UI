@@ -75,7 +75,7 @@ VarGUI = shinyUI({
                     #> Tabpanel of kriging
                     tabPanel(
                       "Kriging", 
-                      # uiOutput("kriging_box")
+                      
                       actionButton("kriging_btn", "Kriging", value = F),
                       plotly::plotlyOutput("krig_res")
                       

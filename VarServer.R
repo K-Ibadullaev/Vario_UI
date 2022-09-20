@@ -16,7 +16,22 @@ VarServer <- function(input, output,session)
   ### dynamic data frame--------------
   datas <- reactive({
     req(input$filedata)
-    read.csv(input$filedata$datapath)
+    ### check extension
+    ext = tools::file_ext(input$filedata$name)
+    switch (ext,
+            csv = vroom::vroom(input$filedata$datapath,delim = ",", col_names = T),
+            tsv = vroom::vroom(input$filedata$datapath,delim = "\t", col_names = T),
+            {
+              showModal(modalDialog(
+                title = "Warning",
+                "Please, upload a .csv or a .tsv file",
+                easyClose = T
+              ))
+              validate("Invalid file. Please, upload a .csv or a .tsv file")}
+    )
+    
+    
+    
   })
   
   ### indicator box-----
@@ -197,56 +212,73 @@ VarServer <- function(input, output,session)
   ### kriging----------
   
   observeEvent(input$kriging_btn,{
-    rangesXY = reactive({selected_data() %>% select(input$Xcoords,input$Ycoords) %>% sapply(range)})
     
     
-    x = reactive({seq(from=rangesXY[1,input$Xcoords]-20, to=rangesXY[2,input$Xcoords]+20, by=10)})
-    y = reactive({seq(from=rangesXY[1,input$Ycoords]-20, to=rangesXY[2,input$Ycoords]+20, by=10)})
+    rangesXY = {selected_data() %>% select(input$Xcoords,input$Ycoords) %>% sapply(range)}
     
-    xy_grid = reactive({expand.grid(X=x(), Y=y())})
+    
+    x = {seq(from=rangesXY[1,input$Xcoords]-20, to=rangesXY[2,input$Xcoords]+20, by=10)}
+    y = {seq(from=rangesXY[1,input$Ycoords]-20, to=rangesXY[2,input$Ycoords]+20, by=10)}
+    
+    xy_grid = {expand.grid(X=x, Y=y)}
     if(input$indicator_box){
       
       frm = as.formula(paste( as.character(input$var_chem), "=='", as.character(input$indicator_list), "'~1", sep=""))
       location_frm = as.formula(paste("~X+Y", sep=""))
       
-      gs_krig  =  reactive({gstat(id=input$var_chem, formula=frm, locations = location_frm ,
-                                  data=selected_data(), model=vgt )})
+      gs_krig  =  {gstat(id=input$indicator_list, formula=frm, locations = location_frm ,
+                         data=selected_data(), model=vgt() )}
     }else{
       #> for numeric variable
       frm = as.formula(paste("log(", input$var_chem, ")~1", sep=""))
       
       location_frm = as.formula(paste( "~X+Y", sep=""))
-      gs_krig  = reactive({gstat(id=input$var_chem, formula=frm, locations = location_frm ,
-                                 data=selected_data(), model=vgt ) })
+      gs_krig  = {gstat(id=input$var_chem, formula=frm, locations = location_frm ,
+                        data=selected_data(), model=vgt() ) }
     }
     
-    ws<<-structure(gs_krig())
+    # ws<<-structure(gs_krig())
     
-    
-    kriged = reactive(predict(freezeReactiveValue(gs_krig), newdata=freezeReactiveValue(xy_grid), debug.level=-1))
+    kriged = predict(gs_krig, newdata=xy_grid, debug.level=-1)
     # kriged = reactive({predict(isolate(gs_krig), newdata=isolate(xy_grid), debug.level=-1)})
-    kriging.res <<- data.frame(kriged)
+    # kriging.res <<- data.frame(kriged)
     
     #> Kriging visualization
-    # output$krig_res = plotly::renderPlotly({
-    #   ggplot(kriged(), aes(x="X",y="Y"))+
-    #       geom_raster(aes(fill=paste0(input$varchem,".pred")))+
-    #       coord_fixed()+
-    #       theme_bw()+
-    #       ggtitle(paste0("Results of kriging for Log(", input$varchem,")" ))+
-    #       scico::scale_fill_scico(palette = "roma",direction = -1)
-    # 
-    # 
-    # })
+    output$krig_res = plotly::renderPlotly({
+      
+      if (input$indicator_box) {
+        ggplot(kriged, aes_string(x="X",y="Y"))+
+          geom_raster(aes_string(fill=paste0(input$indicator_list,".pred")))+
+          coord_fixed()+
+          theme_bw()+
+          ylim(min(y),max(y))+
+          xlim(min(x),max(x))+
+          ggtitle(paste0("Results of kriging for ", input$indicator_list ))+
+          scico::scale_fill_scico(palette = "roma",direction = -1)
+        
+        
+        
+      }else{
+        ggplot(kriged, aes_string(x="X",y="Y"))+
+          geom_raster(aes_string(fill=paste0(input$var_chem,".pred")))+
+          coord_fixed()+
+          theme_bw()+
+          ylim(min(y),max(y))+
+          xlim(min(x),max(x))+
+          ggtitle(paste0("Results of kriging for Log(", input$var_chem,")" ))+
+          scico::scale_fill_scico(palette = "roma",direction = -1)
+        
+      }
+      
+      
+      
+    })
     
     
     
     
     
   })
-  
-  
-  
   
   ### render data frame ------------
   output$datatabshow <- DT::renderDT({    

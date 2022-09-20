@@ -23,7 +23,7 @@ ui = fluidPage(
       #> Display the upload widget
       fileInput(inputId = "filedata",
                 label = "Upload data. Choose CSV file",
-                accept = c(".csv")),
+                accept = c(".csv",".tsv")),
       #> Display input for nested structures
       numericInput("num", "Number of structures", value = 1, min = 1, max = 3),
       
@@ -68,7 +68,8 @@ ui = fluidPage(
                            ),
                            plotly::plotlyOutput("varioplot"),
                            fluidRow(
-                                    column(2,actionButton("save_model", "Save model")),)
+                                    column(2,actionButton("save_model", "Save model")),
+                                    column(2,actionButton("autofit", "Fit model")))
                            
                            
                            
@@ -79,11 +80,49 @@ ui = fluidPage(
                            plotly::plotlyOutput("swathE")),
                   #> Tabpanel of kriging
                   tabPanel(
-                        "Kriging", 
-                        # uiOutput("kriging_box")
-                        actionButton("kriging_btn", "Kriging", value = F),
-                       plotly::plotlyOutput("krig_res")
+                        "Kriging",
+                        waiter::use_waiter(),
+                        fluidRow(
+                          column(4,
+                                 fluidRow( sliderInput("nmax","Number of nearest observations", min = 10, max = 300,value = 50)),
+                                 
+                                 fluidRow( uiOutput("nmin")),
+                                 # fluidRow( sliderInput("nmin","Minimal number of nearest observations", min = 10, max = 100,value = 50)),
+                                 
+                                 
+                                 fluidRow( sliderInput("omax","Maximum number of observations to select per octant (3D) or quadrant (2D);", min = 1, max = 100,value = 6)),
+                                 
+                                 fluidRow( uiOutput("maxdist")),
+                                 # fluidRow( sliderInput("maxdist","Maximal distance between 2 observations", min = 1, max = 200,value = 20)),
+                                 fluidRow(actionButton("kriging_btn", "Kriging", value = F))
+                                 
+                                 ),
+                          column(8,plotly::plotlyOutput("krig_res"))
+                          
+                          )
+                         
+                        
+                        
+                        
+                        
+                        
+                        
+                       
                      
+                  ),
+                  #> Tabpanel of simulations
+                  tabPanel(
+                    "Simulations",
+                    waiter::use_waiter(),
+                    fluidRow(
+                      column(5,sliderInput("nsim","Select number of simulations", min = 1, 
+                                           step = 1,   max = 100,value = 1)),
+                      column(5,uiOutput("dispnsim")),
+                      column(2,actionButton("sim_btn", "Simulate", value = F))
+                    ),
+                    
+                    plotly::plotlyOutput("sim_res")
+                    
                   )
                   
                   
@@ -104,7 +143,23 @@ server <- function(input, output,session)
   ### dynamic data frame--------------
   datas <- reactive({
     req(input$filedata)
-    read.csv(input$filedata$datapath)
+    ### check extension
+    ext = tools::file_ext(input$filedata$name)
+    switch (ext,
+      csv = vroom::vroom(input$filedata$datapath,delim = ",", col_names = T),
+      tsv = vroom::vroom(input$filedata$datapath,delim = "\t", col_names = T),
+      {
+        showModal(modalDialog(
+          title = "Warning",
+          "Please, upload a .csv or a .tsv file",
+          easyClose = T
+        ))
+        validate("Invalid file. Please, upload a .csv or a .tsv file",cancelOutput = TRUE)
+        }
+    )
+    
+    
+    
   })
   
   ### indicator box-----
@@ -118,11 +173,7 @@ server <- function(input, output,session)
     selectInput("indicator_list", "Indicator variable", choices = selected_data() %>% select(input$var_chem)%>% unique) 
   })
   
-  ### kriging -----
-  # output$kriging_box <- renderUI({
-  #   checkboxInput("kriging_box", "Kriging", value = F)
-  # })
-  # 
+ 
   
   ### coordinates------
   output$Xcoords <- renderUI({
@@ -139,7 +190,15 @@ server <- function(input, output,session)
   
   ### subset the data w.r.t variable and coordinates------  
   selected_data = reactive({
-    datas() %>% select(input$Xcoords,input$Ycoords,input$var_chem)
+    if(input$indicator_box){
+      datas() %>% select(input$Xcoords,input$Ycoords,input$var_chem) 
+    }else{
+      datas() %>% select(input$Xcoords,input$Ycoords,input$var_chem)
+      
+    }
+    
+    
+    
   })   
   
   
@@ -147,10 +206,36 @@ server <- function(input, output,session)
   output$cutoff<-renderUI({
     req(selected_data())
     sliderInput("cutoff","Cutoff", min = 1, 
-                max = max(as.matrix(dist(selected_data()%>%select(input$Xcoords,input$Ycoords))))/2,value = 225)
+                max = max(as.matrix(dist(selected_data()%>%select(input$Xcoords,input$Ycoords))))/2,value = max(as.matrix(dist(selected_data()%>%select(input$Xcoords,input$Ycoords))))/4)
+  })
+  
+  ### maxdist-------
+  
+  # Is it cutoff or width/lag ???
+  output$maxdist<-renderUI({
+    req(selected_data())
+    sliderInput("maxdist","Maximal distance between 2 observations", min = 1,
+                max = max(as.matrix(dist(selected_data()%>%select(input$Xcoords,input$Ycoords))))/2,value =max(as.matrix(dist(selected_data()%>%select(input$Xcoords,input$Ycoords))))/4)
   })
   
   
+  ### nmin--------
+  output$nmin = renderUI({
+    
+    sliderInput("nmin","Minimal number of nearest observations", min = 10, max = input$nmax,value = input$nmax*0.5)
+    
+  })
+  
+  ### number of simulation-------
+  output$dispnsim = renderUI({
+    if(input$nsim>1){
+      sliderInput("dispnsim","Display n-th simulation", min = 1, 
+                  max = input$nsim,value = 1, step = 1)
+      
+    }
+    
+    
+  })
   ### dynamic models-----------
   output$dynamic_models <- renderUI({
     #> creates input widgets depending on given number of nested structures
@@ -204,9 +289,12 @@ server <- function(input, output,session)
   output$dynamic_alpha <- renderUI({
     #> creates input widgets depending on given number of nested structures
     num <- as.integer(input$num)
+    
     purrr::map(1:num,function(i) {
-      
+      # value <- isolate(paste0("input$alpha",i))
       sliderInput(inputId = paste0("alpha",i),label=paste("Anisotropy angle",i), min = 0, max = 270,value=0)
+      
+      
       
     })
   })
@@ -214,6 +302,7 @@ server <- function(input, output,session)
   output$dynamic_ratio <- renderUI({
     #> creates input widgets depending on given number of nested structures
     num <- as.integer(input$num)
+    
     purrr::map(1:num,function(i) {
       
       sliderInput(inputId = paste0("ratio",i),label=paste("Ratio",i), min = 0, max = 1,value = 1)
@@ -275,67 +364,238 @@ server <- function(input, output,session)
     
     
   })
-  ### save model parameters
+  ### save model parameters------
   observeEvent(input$save_model, {
+    req(vgt())
     res = structure(vgt())
     variogram_model<<-res
+    # if(exists(gs_autofit) ){
+    #   
+    #   
+    # resautofit = structure(gs_autofit())
+    # autofit_variogram_model<<-resautofit
+    #   
+    # }
     
   })
- 
-  ### kriging----------
   
-  observeEvent(input$kriging_btn,{
-    rangesXY = reactive({selected_data() %>% select(input$Xcoords,input$Ycoords) %>% sapply(range)})
-    
-    
-    x = reactive({seq(from=rangesXY[1,input$Xcoords]-20, to=rangesXY[2,input$Xcoords]+20, by=10)})
-    y = reactive({seq(from=rangesXY[1,input$Ycoords]-20, to=rangesXY[2,input$Ycoords]+20, by=10)})
+  ### autofit---------- 
+  # gs_autofit=eventReactive(input$autofit,{
+  # 
+  #   gstat::fit.variogram(object=vg(),  model = vgt())
+  # })
 
-    xy_grid = reactive({expand.grid(X=x(), Y=y())})
+
+ #
+
+  ### kriging----------
+
+  observeEvent(input$kriging_btn,{
+
+
+    rangesXY = {selected_data() %>% select(input$Xcoords,input$Ycoords) %>% sapply(range)}
+
+
+    x = {seq(from=rangesXY[1,input$Xcoords]-20, to=rangesXY[2,input$Xcoords]+20, by=10)}
+    y = {seq(from=rangesXY[1,input$Ycoords]-20, to=rangesXY[2,input$Ycoords]+20, by=10)}
+
+    xy_grid = {expand.grid(X=x, Y=y)}
     if(input$indicator_box){
 
             frm = as.formula(paste( as.character(input$var_chem), "=='", as.character(input$indicator_list), "'~1", sep=""))
             location_frm = as.formula(paste("~X+Y", sep=""))
 
-            gs_krig  =  reactive({gstat(id=input$var_chem, formula=frm, locations = location_frm ,
-                  data=selected_data(), model=vgt )})
+            gs_krig  =  {gstat(id=input$indicator_list, formula=frm, locations = location_frm ,
+                  data=selected_data(), model=vgt() , 
+                  
+                   nmax = input$nmax %>% as.numeric(),    # maximum number of datapoints => increase if variogram has oscillations
+                   omax = input$omax %>% as.numeric(),    # maximum nr of datapoints per octant/quadrants 
+                   nmin = input$nmin %>% as.numeric(), 
+                   maxdist = input$maxdist %>% as.numeric(), # maximum distance to seek for datapoints
+                   force = T
+               
+                  
+                  
+                  
+                  )}
           }else{
             #> for numeric variable
             frm = as.formula(paste("log(", input$var_chem, ")~1", sep=""))
 
             location_frm = as.formula(paste( "~X+Y", sep=""))
-            gs_krig  = reactive({gstat(id=input$var_chem, formula=frm, locations = location_frm ,
-                  data=selected_data(), model=vgt ) })
+            gs_krig  = {gstat(id=input$var_chem, formula=frm, locations = location_frm ,
+                  data=selected_data(), model=vgt(), 
+                  nmax = input$nmax %>% as.numeric() ,    # maximum number of datapoints => increase if variogram has oscillations
+                  nmin = input$nmin %>% as.numeric(),
+                  omax = input$omax %>% as.numeric(),    # maximum nr of datapoints per octant/quadrants 
+                  maxdist = input$maxdist %>% as.numeric(), # maximum distance to seek for datapoints
+                  force = T
+                  
+                  )
+              
+              }
           }
 
-    ws<<-structure(gs_krig())
-
-
-    kriged = reactive(predict(freezeReactiveValue(gs_krig), newdata=freezeReactiveValue(xy_grid), debug.level=-1))
-     # kriged = reactive({predict(isolate(gs_krig), newdata=isolate(xy_grid), debug.level=-1)})
-     kriging.res <<- data.frame(kriged)
-
-    #> Kriging visualization
-    # output$krig_res = plotly::renderPlotly({
-    #   ggplot(kriged(), aes(x="X",y="Y"))+
-    #       geom_raster(aes(fill=paste0(input$varchem,".pred")))+
-    #       coord_fixed()+
-    #       theme_bw()+
-    #       ggtitle(paste0("Results of kriging for Log(", input$varchem,")" ))+
-    #       scico::scale_fill_scico(palette = "roma",direction = -1)
-    # 
-    # 
-    # })
+    # ws<<-structure(gs_krig())
+    waiter <- waiter::Waiter$new()
+    waiter$show()
+    
+    kriged = predict(gs_krig, newdata=xy_grid, debug.level=-1)
+    on.exit(waiter$hide())
+    
+    kriging.res <<- data.frame(kriged)
 
     
     
+    #> Kriging visualization--------
+    output$krig_res = plotly::renderPlotly({
+     
+      if (input$indicator_box) {
+        ggplot(kriged, aes_string(x="X",y="Y"))+
+          geom_raster(aes_string(fill=paste0(input$indicator_list,".pred")))+
+          theme_bw()+
+          theme(panel.grid.major = element_blank(), panel.grid.minor = element_blank())+
+          coord_cartesian(
+            ylim=c(min(y),max(y)),
+            xlim=c(min(x),max(x))
+            
+          )+
+          ggtitle(paste0("Results of kriging for ", input$indicator_list ))+
+          scico::scale_fill_scico(palette = "roma",direction = -1)
+        
+        
+        
+      }else{
+        ggplot(kriged, aes_string(x="X",y="Y"))+
+          geom_raster(aes_string(fill=paste0(input$var_chem,".pred")))+
+          theme_bw()+
+          theme(panel.grid.major = element_blank(), panel.grid.minor = element_blank())+
+          coord_cartesian(
+            ylim=c(min(y),max(y)),
+            xlim=c(min(x),max(x))
+            
+          )+
+          ggtitle(paste0("Results of kriging for Log(", input$var_chem,")" ))+
+          scico::scale_fill_scico(palette = "roma",direction = -1)
+        
+      }
+      
+      
+      
+    })
 
+
+   
+
+
+  })
+  
+  
+  
+  
+  ### Simulations -------
+  
+  observeEvent(input$sim_btn,{
+    
+    
+    rangesXY = {selected_data() %>% select(input$Xcoords,input$Ycoords) %>% sapply(range)}
+    
+    
+    x = {seq(from=rangesXY[1,input$Xcoords]-20, to=rangesXY[2,input$Xcoords]+20, by=10)}
+    y = {seq(from=rangesXY[1,input$Ycoords]-20, to=rangesXY[2,input$Ycoords]+20, by=10)}
+    
+    xy_grid = {expand.grid(X=x, Y=y)}
+    if(input$indicator_box){
+      
+      frm = as.formula(paste( as.character(input$var_chem), "=='", as.character(input$indicator_list), "'~1", sep=""))
+      location_frm = as.formula(paste("~X+Y", sep=""))
+      
+      gs_krig  =  {gstat(id=input$indicator_list, formula=frm, locations = location_frm ,
+                         data=selected_data(), model=vgt() , 
+                         nmax = input$nmax %>% as.numeric() ,    # maximum number of datapoints => increase if variogram has oscillations
+                         nmin = input$nmin %>% as.numeric(),
+                         omax = input$omax %>% as.numeric(),    # maximum nr of datapoints per octant/quadrants 
+                         maxdist = input$maxdist %>% as.numeric(), # maximum distance to seek for datapoints
+                         force = T
+                         )}
+    }else{
+      #> for numeric variable
+      frm = as.formula(paste("log(", input$var_chem, ")~1", sep=""))
+      
+      location_frm = as.formula(paste( "~X+Y", sep=""))
+      gs_krig  = {gstat(id=input$var_chem, formula=frm, locations = location_frm ,
+                        data=selected_data(), model=vgt(), 
+                        nmax = input$nmax %>% as.numeric() ,    # maximum number of datapoints => increase if variogram has oscillations
+                        nmin = input$nmin %>% as.numeric(),
+                        omax = input$omax %>% as.numeric(),    # maximum nr of datapoints per octant/quadrants 
+                        maxdist = input$maxdist %>% as.numeric(), # maximum distance to seek for datapoints
+                        force = T
+                        
+                        ) }
+    }
+    
+    
+    waiter <- waiter::Waiter$new()
+    waiter$show()
+    
+    sims= predict(gs_krig, newdata=xy_grid, debug.level=-1, nsim=input$nsim)
+    
+    on.exit(waiter$hide())
+    
+    sims.res <<- data.frame(sims)
+    
+    
+    #> Simulation visualization-------
+    output$sim_res = plotly::renderPlotly({
+      
+      if (input$indicator_box) {
+        ggplot(sims, aes_string(x="X",y="Y"))+
+          geom_raster(aes_string(fill=paste0(paste0("sim",input$dispnsim))))+
+          theme_bw()+
+          theme(panel.grid.major = element_blank(), panel.grid.minor = element_blank())+
+          coord_cartesian(
+            ylim=c(min(y),max(y)),
+            xlim=c(min(x),max(x))
+            
+          )+
+          ggtitle(paste0("Visualization of simulation № ",input$dispnsim, " for ", input$indicator_list ))+
+          scico::scale_fill_scico(palette = "roma",direction = -1)
+        
+        
+        
+      }else{
+        ggplot(sims, aes_string(x="X",y="Y"))+
+          geom_raster(aes_string(fill=paste0(paste0("sim",input$dispnsim))))+
+          theme_bw()+
+          theme(panel.grid.major = element_blank(), panel.grid.minor = element_blank())+
+          coord_cartesian(
+            ylim=c(min(y),max(y)),
+            xlim=c(min(x),max(x))
+            
+          )+
+          ggtitle(paste0("Visualization of simulation № ",input$dispnsim, " for Log(", input$var_chem,")" ))+
+          scico::scale_fill_scico(palette = "roma",direction = -1)
+        
+      }
+      
+      
+      
+    })
+    
+    
+    
+    
+    
+    
+    
     
   })
+  
+  
+  
+  
+  
 
-  
-  
-  
   ### render data frame ------------
   output$datatabshow <- DT::renderDT({    
     selected_data()
@@ -347,7 +607,7 @@ server <- function(input, output,session)
   
 
   ### plotting ---------
-  # plot empirical variogram and  model
+  #> plot empirical variogram and  model---------
   output$varioplot <-  plotly::renderPlotly({
     
     ggplot() +
@@ -362,7 +622,7 @@ server <- function(input, output,session)
   })
   
   
-  #> Swath plots
+  #> Swath plots-------------
   #> Plot spatial dependency of the variable w.r.t direction North/East
   
   output$swathN = plotly::renderPlotly(
@@ -382,7 +642,7 @@ server <- function(input, output,session)
     
     
   )
-  
+  #> Swath easting--------
   output$swathE = plotly::renderPlotly(
     {
       if (!input$indicator_box) {
@@ -398,7 +658,14 @@ server <- function(input, output,session)
   
   
   
+  
+  
+  
+  
  
+
+  
+  
   
   
   
