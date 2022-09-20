@@ -22,7 +22,7 @@ ui = fluidPage(
     sidebarPanel(
       #> Display the upload widget
       fileInput(inputId = "filedata",
-                label = "Upload data. Choose CSV file",
+                label = "Upload data. Choose CSV or TSV file",
                 accept = c(".csv",".tsv")),
       #> Display input for nested structures
       numericInput("num", "Number of structures", value = 1, min = 1, max = 3),
@@ -68,8 +68,8 @@ ui = fluidPage(
                            ),
                            plotly::plotlyOutput("varioplot"),
                            fluidRow(
-                                    column(2,actionButton("save_model", "Save model")),
-                                    column(2,actionButton("autofit", "Fit model")))
+                                    column(2,actionButton("save_model", "Save model"))
+                                    )
                            
                            
                            
@@ -81,6 +81,7 @@ ui = fluidPage(
                   #> Tabpanel of kriging
                   tabPanel(
                         "Kriging",
+                        #loading
                         waiter::use_waiter(),
                         fluidRow(
                           column(4,
@@ -113,6 +114,8 @@ ui = fluidPage(
                   #> Tabpanel of simulations
                   tabPanel(
                     "Simulations",
+                    
+                    #loading
                     waiter::use_waiter(),
                     fluidRow(
                       column(5,sliderInput("nsim","Select number of simulations", min = 1, 
@@ -143,7 +146,7 @@ server <- function(input, output,session)
   ### dynamic data frame--------------
   datas <- reactive({
     req(input$filedata)
-    ### check extension
+    ### check file extension
     ext = tools::file_ext(input$filedata$name)
     switch (ext,
       csv = vroom::vroom(input$filedata$datapath,delim = ",", col_names = T),
@@ -163,11 +166,13 @@ server <- function(input, output,session)
   })
   
   ### indicator box-----
+  ##check for indicator
   output$indicator_box <- renderUI({
     checkboxInput("indicator_box", "Indicator", value = F)
   })
   
   ### indicator list-----
+  #list of indicators
   output$indicator_list <- renderUI({
     req(input$indicator_box,input$var_chem)
     selectInput("indicator_list", "Indicator variable", choices = selected_data() %>% select(input$var_chem)%>% unique) 
@@ -210,8 +215,8 @@ server <- function(input, output,session)
   })
   
   ### maxdist-------
-  
-  # Is it cutoff or width/lag ???
+  #> Define mmaximal distance between  observations for local kriging
+  #> Is it a cutoff or  width/lag ???
   output$maxdist<-renderUI({
     req(selected_data())
     sliderInput("maxdist","Maximal distance between 2 observations", min = 1,
@@ -220,6 +225,7 @@ server <- function(input, output,session)
   
   
   ### nmin--------
+  #> Define minimal number of observations for local kriging
   output$nmin = renderUI({
     
     sliderInput("nmin","Minimal number of nearest observations", min = 10, max = input$nmax,value = input$nmax*0.5)
@@ -270,12 +276,15 @@ server <- function(input, output,session)
       
       sliderInput(inputId = paste0("sill",i),label=paste("Sill",i),
                   min = 0,
+                  #check for numeric/indicator 
                   step = ifelse(!input$indicator_box,
                                 var(selected_data()%>%select(input$var_chem))*1.5*0.001,
                                 0.001),
+                  #check for numeric/indicator
                   max = ifelse(!input$indicator_box,
                                                     var(selected_data()%>%select(input$var_chem))*3,
                                                     0.25) ,
+                  #check for numeric/indicator
                   value = ifelse(!input$indicator_box,
                     var(selected_data()%>%select(input$var_chem))*1.5*0.01,
                   0.25)
@@ -314,7 +323,7 @@ server <- function(input, output,session)
   
   
   ###  empirical variogram ------------
-  #> creates empricial variogram for the vaiable of interest
+  #> creates empirical variogram for the variable of interest indicator/numeric
   gs = reactive({
     #> for categorical variable
     if(input$indicator_box){
@@ -360,46 +369,47 @@ server <- function(input, output,session)
       
       
     }
+    
+  
+   
     res
     
     
+    
   })
+  
+  
   ### save model parameters------
   observeEvent(input$save_model, {
     req(vgt())
     res = structure(vgt())
     variogram_model<<-res
-    # if(exists(gs_autofit) ){
-    #   
-    #   
-    # resautofit = structure(gs_autofit())
-    # autofit_variogram_model<<-resautofit
-    #   
-    # }
+    
+   
     
   })
   
-  ### autofit---------- 
-  # gs_autofit=eventReactive(input$autofit,{
-  # 
-  #   gstat::fit.variogram(object=vg(),  model = vgt())
-  # })
 
 
- #
+
+ 
 
   ### kriging----------
 
+  #> Computes kriging on button click
   observeEvent(input$kriging_btn,{
 
-
+    #>set the range 
     rangesXY = {selected_data() %>% select(input$Xcoords,input$Ycoords) %>% sapply(range)}
 
-
+    #> Grid extents
     x = {seq(from=rangesXY[1,input$Xcoords]-20, to=rangesXY[2,input$Xcoords]+20, by=10)}
     y = {seq(from=rangesXY[1,input$Ycoords]-20, to=rangesXY[2,input$Ycoords]+20, by=10)}
-
+    
+    #> Define the grid
     xy_grid = {expand.grid(X=x, Y=y)}
+    
+    #> Check which type of variable is used
     if(input$indicator_box){
 
             frm = as.formula(paste( as.character(input$var_chem), "=='", as.character(input$indicator_list), "'~1", sep=""))
@@ -410,9 +420,9 @@ server <- function(input, output,session)
                   
                    nmax = input$nmax %>% as.numeric(),    # maximum number of datapoints => increase if variogram has oscillations
                    omax = input$omax %>% as.numeric(),    # maximum nr of datapoints per octant/quadrants 
-                   nmin = input$nmin %>% as.numeric(), 
+                   nmin = input$nmin %>% as.numeric(),    # minimal number of nearest observations
                    maxdist = input$maxdist %>% as.numeric(), # maximum distance to seek for datapoints
-                   force = T
+                   force = T # in case nmin is given, search beyond maxdist until nmin neighbours are found.
                
                   
                   
@@ -429,28 +439,29 @@ server <- function(input, output,session)
                   nmin = input$nmin %>% as.numeric(),
                   omax = input$omax %>% as.numeric(),    # maximum nr of datapoints per octant/quadrants 
                   maxdist = input$maxdist %>% as.numeric(), # maximum distance to seek for datapoints
-                  force = T
+                  force = T # in case nmin is given, search beyond maxdist until nmin neighbours are found.
                   
                   )
               
               }
           }
 
-    # ws<<-structure(gs_krig())
+    #> loading animation
     waiter <- waiter::Waiter$new()
     waiter$show()
-    
+    #> kriging
     kriged = predict(gs_krig, newdata=xy_grid, debug.level=-1)
     on.exit(waiter$hide())
-    
+    #> save as global var
     kriging.res <<- data.frame(kriged)
 
     
     
     #> Kriging visualization--------
     output$krig_res = plotly::renderPlotly({
-     
+     # Check the variable and kriging type
       if (input$indicator_box) {
+        # indicator
         ggplot(kriged, aes_string(x="X",y="Y"))+
           geom_raster(aes_string(fill=paste0(input$indicator_list,".pred")))+
           theme_bw()+
@@ -466,6 +477,7 @@ server <- function(input, output,session)
         
         
       }else{
+        # numeric
         ggplot(kriged, aes_string(x="X",y="Y"))+
           geom_raster(aes_string(fill=paste0(input$var_chem,".pred")))+
           theme_bw()+
@@ -494,7 +506,7 @@ server <- function(input, output,session)
   
   
   ### Simulations -------
-  
+  # similar to kriging, except taking parameters from input for nsim 
   observeEvent(input$sim_btn,{
     
     
@@ -541,7 +553,7 @@ server <- function(input, output,session)
     sims= predict(gs_krig, newdata=xy_grid, debug.level=-1, nsim=input$nsim)
     
     on.exit(waiter$hide())
-    
+    # save as global var
     sims.res <<- data.frame(sims)
     
     

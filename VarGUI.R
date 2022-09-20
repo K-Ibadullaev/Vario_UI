@@ -11,14 +11,13 @@ library(rlang)
 
 
 VarGUI = shinyUI({
-  
-  fluidPage(
+  ui = fluidPage(
     sidebarLayout(
       sidebarPanel(
         #> Display the upload widget
         fileInput(inputId = "filedata",
-                  label = "Upload data. Choose CSV file",
-                  accept = c(".csv")),
+                  label = "Upload data. Choose CSV or TSV file",
+                  accept = c(".csv",".tsv")),
         #> Display input for nested structures
         numericInput("num", "Number of structures", value = 1, min = 1, max = 3),
         
@@ -63,7 +62,8 @@ VarGUI = shinyUI({
                              ),
                              plotly::plotlyOutput("varioplot"),
                              fluidRow(
-                               column(2,actionButton("save_model", "Save model")),)
+                               column(2,actionButton("save_model", "Save model"))
+                             )
                              
                              
                              
@@ -74,10 +74,51 @@ VarGUI = shinyUI({
                              plotly::plotlyOutput("swathE")),
                     #> Tabpanel of kriging
                     tabPanel(
-                      "Kriging", 
+                      "Kriging",
+                      #loading
+                      waiter::use_waiter(),
+                      fluidRow(
+                        column(4,
+                               fluidRow( sliderInput("nmax","Number of nearest observations", min = 10, max = 300,value = 50)),
+                               
+                               fluidRow( uiOutput("nmin")),
+                               # fluidRow( sliderInput("nmin","Minimal number of nearest observations", min = 10, max = 100,value = 50)),
+                               
+                               
+                               fluidRow( sliderInput("omax","Maximum number of observations to select per octant (3D) or quadrant (2D);", min = 1, max = 100,value = 6)),
+                               
+                               fluidRow( uiOutput("maxdist")),
+                               # fluidRow( sliderInput("maxdist","Maximal distance between 2 observations", min = 1, max = 200,value = 20)),
+                               fluidRow(actionButton("kriging_btn", "Kriging", value = F))
+                               
+                        ),
+                        column(8,plotly::plotlyOutput("krig_res"))
+                        
+                      )
                       
-                      actionButton("kriging_btn", "Kriging", value = F),
-                      plotly::plotlyOutput("krig_res")
+                      
+                      
+                      
+                      
+                      
+                      
+                      
+                      
+                    ),
+                    #> Tabpanel of simulations
+                    tabPanel(
+                      "Simulations",
+                      
+                      #loading
+                      waiter::use_waiter(),
+                      fluidRow(
+                        column(5,sliderInput("nsim","Select number of simulations", min = 1, 
+                                             step = 1,   max = 100,value = 1)),
+                        column(5,uiOutput("dispnsim")),
+                        column(2,actionButton("sim_btn", "Simulate", value = F))
+                      ),
+                      
+                      plotly::plotlyOutput("sim_res")
                       
                     )
                     
@@ -90,6 +131,7 @@ VarGUI = shinyUI({
       
     )
   )
+  
   
   
 })
