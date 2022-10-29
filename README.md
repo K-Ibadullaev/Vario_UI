@@ -1,11 +1,11 @@
 1.0.0
 Program for variogram modeling.
 GUI provides an easy way to set parameters and fit the model.
-Kriging and simulations are also available
+
 
 1.1.0
 App is modularized in 3 separate files.
-Added Kriging and Simulations features
+Added Kriging and Simulations features.
 
 Further possible updates:
 - better modularization
