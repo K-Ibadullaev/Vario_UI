@@ -1,6 +1,7 @@
 1.0.0
 Program for variogram modeling.
 GUI provides an easy way to set parameters and fit the model.
+Kriging and simulations are also available
 
 1.1.0
 App is modularized in 3 separate files.
@@ -10,3 +11,4 @@ Further possible updates:
 - better modularization
 - implement auto fitting of variogram
 - enable upload of variogram model
+- multivariate case
